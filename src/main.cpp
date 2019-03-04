@@ -1,12 +1,23 @@
 #include "Arduino.h"
 #include <SoftwareSerial.h>
 
+// RTC
 #include <Wire.h>
 #include "RTClib.h" //library file for DS3231 RTC Module
+
+//Finger Print
 #include "Adafruit_Fingerprint.h" //fingerprint library header file
 #include <EEPROM.h>               //command for storing data
-#include <LiquidCrystal.h>        //lcd header file
+
+//LCD module
+#include <LiquidCrystal.h> //lcd header file
 #include <LCDKeypad.h>
+
+//SDCard
+#include <SPI.h>
+#include <SD.h>
+
+//Function Prototypes
 
 void attendance(int id);
 void checkKeys();
@@ -16,27 +27,28 @@ uint8_t getFingerprintEnroll();
 int getFingerprintIDez();
 uint8_t deleteFingerprint(uint8_t id);
 void download(int eepIndex);
+void SDCardRecord(int i);
 
-//LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+//SDcard
+const int chipSelect = 53;
+
+//LCD Module
 LCDKeypad lcd;
-//SoftwareSerial fingerPrint(12,13);
+//LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+
+//Fingerprint
 #define fingerPrint Serial1 //for tx/rx communication between arduino & r305 fingerprint sensor
+//SoftwareSerial fingerPrint(12,13);
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&fingerPrint);
 
-
+// RTC
 RTC_DS3231 rtc;
 
 uint8_t id;
-Adafruit_Fingerprint finger = Adafruit_Fingerprint(&fingerPrint);
 
-// #define register_back 31//14
-// #define delete_ok 32//15
-// #define forward 33//16
-// #define reverse 34//17
-#define match 35//5
-#define indFinger 36//7
-#define buzzer 49
-
-
+#define indFinger 22 //7
+uint8_t buzzer=31;
+uint8_t buzzerN = buzzer+6;
 
 #define records 10 // 10 for 10 user
 
@@ -49,18 +61,15 @@ void setup()
     delay(1000);
     lcd.begin(16, 2);
     Serial.begin(9600);
-    // pinMode(register_back, INPUT_PULLUP);
-    // pinMode(forward, INPUT_PULLUP);
-    // pinMode(reverse, INPUT_PULLUP);
-    // pinMode(delete_ok, INPUT_PULLUP);
-    pinMode(match, INPUT_PULLUP);
-pinMode(10,OUTPUT);
-digitalWrite(10,HIGH);
+
+    pinMode(10, OUTPUT);
+    digitalWrite(10, HIGH);
     pinMode(buzzer, OUTPUT);
+    pinMode(buzzerN, OUTPUT);
     pinMode(indFinger, OUTPUT);
     digitalWrite(buzzer, LOW);
-    
-    //if (digitalRead(register_back) == 0)
+    digitalWrite(buzzerN, LOW);
+
     if (lcd.button() == KEYPAD_SELECT)
     {
         digitalWrite(buzzer, HIGH);
@@ -114,7 +123,7 @@ digitalWrite(10,HIGH);
             Serial.println();
         }
     }
-    if (lcd.button()== KEYPAD_LEFT)
+    if (lcd.button() == KEYPAD_LEFT)
     {
         lcd.clear();
         lcd.print("Please Wait");
@@ -182,6 +191,19 @@ digitalWrite(10,HIGH);
         // June 7, 2018 at 11am you would call:
         // rtc.adjust(DateTime(2018, 6, 7, 11, 0, 0));
     }
+
+    //SD CARD
+
+    if (!SD.begin(chipSelect))
+    {
+        Serial.println("Card failed, or not present");
+        // don't do anything more:
+        return;
+    }else{
+       Serial.println("card initialized.");
+    }
+
+
     lcd.setCursor(0, 0);
     lcd.print(" Press Match to ");
     lcd.setCursor(0, 1);
@@ -333,7 +355,7 @@ void checkKeys()
         Enroll();
     }
 
-    else if (lcd.button()==KEYPAD_LEFT)
+    else if (lcd.button() == KEYPAD_LEFT)
     {
         lcd.clear();
         lcd.print("Please Wait");
@@ -352,7 +374,7 @@ void Enroll()
     {
         lcd.setCursor(0, 1);
         lcd.print(count);
-        if (lcd.button()== KEYPAD_UP)
+        if (lcd.button() == KEYPAD_UP)
         {
             count++;
             if (count > records)
@@ -360,14 +382,14 @@ void Enroll()
             delay(500);
         }
 
-        else if (lcd.button()==KEYPAD_DOWN)
+        else if (lcd.button() == KEYPAD_DOWN)
         {
             count--;
             if (count < 1)
                 count = records;
             delay(500);
         }
-        else if (lcd.button()==KEYPAD_LEFT)
+        else if (lcd.button() == KEYPAD_LEFT)
         {
             id = count;
             getFingerprintEnroll();
@@ -399,7 +421,7 @@ void delet()
     {
         lcd.setCursor(0, 1);
         lcd.print(count);
-        if (lcd.button()== KEYPAD_UP)
+        if (lcd.button() == KEYPAD_UP)
         {
             count++;
             if (count > records)
@@ -407,14 +429,14 @@ void delet()
             delay(500);
         }
 
-        else if (lcd.button()==KEYPAD_DOWN)
+        else if (lcd.button() == KEYPAD_DOWN)
         {
             count--;
             if (count < 1)
                 count = records;
             delay(500);
         }
-        else if (lcd.button()==KEYPAD_LEFT)
+        else if (lcd.button() == KEYPAD_LEFT)
         {
             id = count;
             deleteFingerprint(id);
@@ -661,7 +683,61 @@ int getFingerprintIDez()
     // found a match!
     Serial.print("Found ID #");
     Serial.print(finger.fingerID);
+    SDCardRecord(finger.fingerID);
     return finger.fingerID;
+}
+
+void SDCardRecord(int id)
+{
+    String dataString = "";
+    dataString += String(id);
+    dataString += '\t';
+
+    dataString += String(now.hour(),DEC);
+    dataString += ':';
+    dataString += String(now.minute(),DEC);
+    dataString += ':';
+    dataString += String(now.second(),DEC);
+    dataString += '\t';
+    dataString += String(now.day(),DEC);
+    dataString += '/';
+    dataString += String(now.month(),DEC);
+    dataString += '/';
+    dataString += String(now.year(),DEC);
+
+    String fileName = String(now.day(),DEC);
+    fileName += "_";
+    fileName += String(now.month(),DEC);
+    fileName += "_";
+    fileName += String(now.year(),DEC);
+    fileName += String(".txt");
+    File dataFile = SD.open(fileName, FILE_WRITE);
+    // File dataFile = SD.open("records.txt", FILE_WRITE);
+
+    if (dataFile)
+    {
+        dataFile.println(dataString);
+        dataFile.close();
+        // print to the serial port too:
+        Serial.println("");
+        Serial.println(dataString);
+        lcd.clear();
+        lcd.print("Saved to");
+        lcd.setCursor(0, 1);
+        lcd.print("SDCard");
+        delay(1000);
+    }
+    // if the file isn't open, pop up an error:
+    else
+    {
+        lcd.clear();
+        lcd.print("Error Opening");
+        lcd.setCursor(0, 1);
+        lcd.print(fileName);
+        Serial.print("error opening ");
+        Serial.println(fileName);
+        delay(1000);
+    }
 }
 
 uint8_t deleteFingerprint(uint8_t id)
